@@ -1,3 +1,4 @@
+[![Run Lint and Test](https://github.com/linzhengen/retryabletransport/actions/workflows/ci.yaml/badge.svg)](https://github.com/linzhengen/retryabletransport/actions/workflows/ci.yaml)
 # Retryable Transport
 The retryabletransport package provides a customizable HTTP transport mechanism with retry functionality built-in. This can be particularly useful for scenarios where network requests might fail intermittently due to transient errors, and retrying them can increase the chances of success.
 
