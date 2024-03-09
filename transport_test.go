@@ -3,6 +3,7 @@ package retryabletransport_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -139,5 +140,33 @@ func Test_RoundTripper_RoundTrip(t *testing.T) {
 				assert.Equal(t, tc.resp.StatusCode, resp.StatusCode)
 			}
 		})
+	}
+}
+
+func ExampleNew() {
+	client := &http.Client{
+		Transport: retryabletransport.New(
+			http.DefaultTransport,
+			func(req *http.Request, resp *http.Response, err error) bool {
+				if errors.Is(err, syscall.ECONNRESET) {
+					return true
+				}
+				if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
+					return true
+				}
+				return false
+			},
+			func(ctx context.Context, err error, duration time.Duration) {
+				fmt.Printf("retry http request, err: %v, duration: %v", err, duration)
+			},
+			&retryabletransport.BackOffPolicy{
+				MaxRetries: 3,
+			},
+		),
+		Timeout: 3 * time.Second,
+	}
+	_, err := client.Get("http://example.com")
+	if err != nil {
+		fmt.Println(err)
 	}
 }

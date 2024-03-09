@@ -40,8 +40,8 @@ func main() {
 			},
 			&retryabletransport.BackOffPolicy{
 				MaxRetries: 3,
-			}),
-	),
+			},
+		),
 		Timeout: 3 * time.Second,
 	}
 	_, err := client.Get("http://example.com")
