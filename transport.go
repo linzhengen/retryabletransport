@@ -3,6 +3,7 @@ package retryabletransport
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -21,6 +22,8 @@ type RoundTripper struct {
 	notifyFunc      NotifyFunc
 	backOffPolicy   *BackOffPolicy
 }
+
+var ShouldRetryRespError = errors.New("should retry response error")
 
 func New(roundTripper http.RoundTripper, shouldRetryFunc ShouldRetryFunc, notifyFunc NotifyFunc, backOffPolicy *BackOffPolicy) *RoundTripper {
 	if roundTripper == nil {
@@ -46,13 +49,13 @@ func (p *RoundTripper) RoundTrip(req *http.Request) (resp *http.Response, err er
 	err = backoff.RetryNotify(func() error {
 		req.Body = io.NopCloser(bytes.NewReader(bodyByte))
 		resp, err = p.roundTripper.RoundTrip(req)
-		if err != nil {
-			if p.shouldRetryFunc(req, resp, err) {
-				return err
+		if p.shouldRetryFunc(req, resp, err) {
+			if err == nil {
+				return ShouldRetryRespError
 			}
-			return backoff.Permanent(err)
+			return err
 		}
-		return nil
+		return backoff.Permanent(err)
 	},
 		backoff.WithMaxRetries(b, p.backOffPolicy.MaxRetries),
 		func(err error, duration time.Duration) {

@@ -39,7 +39,7 @@ func Test_RoundTripper_RoundTrip(t *testing.T) {
 		err           error
 		resp          *http.Response
 		requestBody   string
-		requestHeader oneHeader
+		requestHeader *oneHeader
 		retriedCount  uint64
 	}
 	tests := []test{
@@ -48,7 +48,7 @@ func Test_RoundTripper_RoundTrip(t *testing.T) {
 			err:           syscall.ECONNRESET,
 			resp:          nil,
 			requestBody:   `body1`,
-			requestHeader: oneHeader{key: "Foo", value: "bar"},
+			requestHeader: &oneHeader{key: "Foo", value: "bar"},
 			retriedCount:  uint64(1),
 		},
 		{
@@ -56,16 +56,24 @@ func Test_RoundTripper_RoundTrip(t *testing.T) {
 			err:           nil,
 			resp:          &http.Response{StatusCode: http.StatusInternalServerError},
 			requestBody:   `body2`,
-			requestHeader: oneHeader{key: "Foo", value: "fee"},
+			requestHeader: &oneHeader{key: "Foo", value: "fee"},
 			retriedCount:  uint64(0),
 		},
 		{
 			name:          "http request success",
 			err:           nil,
 			resp:          &http.Response{StatusCode: http.StatusOK},
-			requestBody:   "body2",
-			requestHeader: oneHeader{key: "Foo", value: "foo"},
+			requestBody:   "body3",
+			requestHeader: &oneHeader{key: "Foo", value: "foo"},
 			retriedCount:  uint64(0),
+		},
+		{
+			name:          "StatusTooManyRequests should retry",
+			err:           retryabletransport.ShouldRetryRespError,
+			resp:          &http.Response{StatusCode: http.StatusTooManyRequests},
+			requestBody:   `body4`,
+			requestHeader: nil,
+			retriedCount:  uint64(1),
 		},
 	}
 	for _, tc := range tests {
@@ -77,7 +85,14 @@ func Test_RoundTripper_RoundTrip(t *testing.T) {
 						mockResp: tc.resp,
 					},
 					func(req *http.Request, resp *http.Response, err error) bool {
-						return errors.Is(err, syscall.ECONNRESET)
+						if errors.Is(err, syscall.ECONNRESET) {
+							return true
+						}
+						if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
+							t.Logf("retry http request, status code: %d", resp.StatusCode)
+							return true
+						}
+						return false
 					},
 					func(ctx context.Context, err error, duration time.Duration) {
 						t.Logf("retry http request, err: %v, duration: %v", err, duration)
@@ -103,14 +118,18 @@ func Test_RoundTripper_RoundTrip(t *testing.T) {
 					}
 				}(r.Body)
 				assert.Equal(t, tc.requestBody, string(requestBody))
-				assert.Equal(t, tc.requestHeader.value, r.Header.Get(tc.requestHeader.key))
+				if tc.requestHeader != nil {
+					assert.Equal(t, tc.requestHeader.value, r.Header.Get(tc.requestHeader.key))
+				}
 				atomic.AddUint64(&calledCount, 1)
 			}))
 			req, err := http.NewRequest("POST", server.URL, strings.NewReader(tc.requestBody))
 			if err != nil {
 				t.Fatal(err)
 			}
-			req.Header.Set(tc.requestHeader.key, tc.requestHeader.value)
+			if tc.requestHeader != nil {
+				req.Header.Set(tc.requestHeader.key, tc.requestHeader.value)
+			}
 			resp, err := client.Do(req)
 			if !errors.Is(err, tc.err) {
 				assert.ErrorIs(t, err, tc.err)
